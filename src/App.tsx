@@ -245,9 +245,15 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const result = await signInWithPopup(auth, provider);
+      if (result && result.user) {
+        setUser(result.user);
+        setIsAuthReady(true);
+      }
+    } catch (error: any) {
       console.error("Login failed", error);
+      alert(`Login မအောင်မြင်ပါ: ${error.message}\n\n(Vercel မှာသုံးနေတာဆိုရင် Firebase Console မှာ Domain သွားထည့်ပေးဖို့ လိုအပ်နိုင်ပါတယ်။)`);
     }
   };
 
