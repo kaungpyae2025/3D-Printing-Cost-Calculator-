@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Moon, Sun, Calculator, RefreshCw, Printer, Package, Wrench, DollarSign, Save, Trash2, Upload, Settings as SettingsIcon, X, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { auth, db, provider } from './firebase';
 import { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, serverTimestamp, setDoc, getDoc } from 'firebase/firestore';
 
 enum OperationType {
   CREATE = 'create',
@@ -172,6 +172,34 @@ export default function App() {
     if (!isAuthReady) return;
     
     if (user) {
+      // Fetch user settings from Cloud
+      const fetchSettings = async () => {
+        try {
+          const docRef = doc(db, 'userSettings', user.uid);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const cloudSettings = docSnap.data() as typeof defaultSettings;
+            setSettings(cloudSettings);
+            setTempSettings(cloudSettings);
+            localStorage.setItem('calcSettings', JSON.stringify(cloudSettings));
+            
+            // Apply to current inputs
+            setSpoolPrice(cloudSettings.spoolPrice);
+            setComponentsCost(cloudSettings.componentsCost || 0);
+            setToppingCost(cloudSettings.toppingCost || 0);
+            setPackagingCost(cloudSettings.packagingCost);
+            setOtherCost(cloudSettings.otherCost);
+            setLaborCost(cloudSettings.laborCost);
+            setElectricityCost(cloudSettings.electricityCost);
+            setMaintenanceCost(cloudSettings.maintenanceCost);
+            setMarkupPercentage(cloudSettings.markupPercentage);
+          }
+        } catch (error) {
+          console.error("Error fetching settings:", error);
+        }
+      };
+      fetchSettings();
+
       const q = query(
         collection(db, 'products'),
         where('userId', '==', user.uid),
@@ -237,7 +265,7 @@ export default function App() {
     setMarkupPercentage(settings.markupPercentage);
   };
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     setSettings(tempSettings);
     localStorage.setItem('calcSettings', JSON.stringify(tempSettings));
     setIsSettingsOpen(false);
@@ -251,6 +279,14 @@ export default function App() {
     setElectricityCost(tempSettings.electricityCost);
     setMaintenanceCost(tempSettings.maintenanceCost);
     setMarkupPercentage(tempSettings.markupPercentage);
+
+    if (user) {
+      try {
+        await setDoc(doc(db, 'userSettings', user.uid), tempSettings, { merge: true });
+      } catch (error) {
+        console.error("Error saving settings to cloud:", error);
+      }
+    }
   };
 
   const handleLogin = async () => {

@@ -90,11 +90,29 @@ service cloud.firestore {
              data.createdAt is number;
     }
 
+    function isValidUserSettings(data) {
+      return isValidOptionalNumber('spoolPrice') &&
+             isValidOptionalNumber('componentsCost') &&
+             isValidOptionalNumber('toppingCost') &&
+             isValidOptionalNumber('packagingCost') &&
+             isValidOptionalNumber('otherCost') &&
+             isValidOptionalNumber('laborCost') &&
+             isValidOptionalNumber('electricityCost') &&
+             isValidOptionalNumber('maintenanceCost') &&
+             isValidOptionalNumber('markupPercentage');
+    }
+
     match /products/{productId} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && isValidProduct(request.resource.data) && uidUnchanged();
       allow update: if isAuthenticated() && isOwner(resource.data.userId) && isValidProduct(request.resource.data) && uidNotModified() && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+
+    match /userSettings/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow create, update: if isAuthenticated() && request.auth.uid == userId && isValidUserSettings(request.resource.data);
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
     }
   }
 }
