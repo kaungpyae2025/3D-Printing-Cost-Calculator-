@@ -1,5 +1,59 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Calculator, RefreshCw, Printer, Package, Wrench, DollarSign, Save, Trash2, Upload, Settings as SettingsIcon, X } from 'lucide-react';
+import { Moon, Sun, Calculator, RefreshCw, Printer, Package, Wrench, DollarSign, Save, Trash2, Upload, Settings as SettingsIcon, X, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { auth, db, provider } from './firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 interface SavedProduct {
   id: string;
@@ -92,14 +146,43 @@ export default function App() {
   
   const [markupPercentage, setMarkupPercentage] = useState<number | ''>(settings.markupPercentage);
 
-  const [savedProducts, setSavedProducts] = useState<SavedProduct[]>(() => {
-    const saved = localStorage.getItem('saved3DProducts');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [savedProducts, setSavedProducts] = useState<SavedProduct[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('saved3DProducts', JSON.stringify(savedProducts));
-  }, [savedProducts]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    
+    if (user) {
+      const q = query(
+        collection(db, 'products'),
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const productsData: SavedProduct[] = [];
+        snapshot.forEach((doc) => {
+          productsData.push({ id: doc.id, ...doc.data() } as SavedProduct);
+        });
+        setSavedProducts(productsData);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'products');
+      });
+      
+      return () => unsubscribe();
+    } else {
+      setSavedProducts([]);
+    }
+  }, [user, isAuthReady]);
 
   // Toggle Dark Mode
   useEffect(() => {
@@ -160,34 +243,66 @@ export default function App() {
     setMarkupPercentage(tempSettings.markupPercentage);
   };
 
-  const handleSave = () => {
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user) {
+      alert("Please log in to save products.");
+      return;
+    }
     if (!productName.trim()) {
       alert("Please enter a Product Name before saving.");
       return;
     }
-    const newProduct: SavedProduct = {
-      id: Date.now().toString(),
+    
+    const newProduct = {
+      userId: user.uid,
       name: productName,
       filamentType,
-      filamentUsed,
-      spoolPrice,
-      printingTime,
-      componentsCost,
-      toppingCost,
-      packagingCost,
-      otherCost,
-      laborCost,
-      electricityCost,
-      maintenanceCost,
-      markupPercentage,
+      filamentUsed: filamentUsed === '' ? 0 : filamentUsed,
+      spoolPrice: spoolPrice === '' ? 0 : spoolPrice,
+      printingTime: printingTime === '' ? 0 : printingTime,
+      componentsCost: componentsCost === '' ? 0 : componentsCost,
+      toppingCost: toppingCost === '' ? 0 : toppingCost,
+      packagingCost: packagingCost === '' ? 0 : packagingCost,
+      otherCost: otherCost === '' ? 0 : otherCost,
+      laborCost: laborCost === '' ? 0 : laborCost,
+      electricityCost: electricityCost === '' ? 0 : electricityCost,
+      maintenanceCost: maintenanceCost === '' ? 0 : maintenanceCost,
+      markupPercentage: markupPercentage === '' ? 0 : markupPercentage,
       finalPrice,
-      date: new Date().toLocaleDateString()
+      date: new Date().toLocaleDateString(),
+      createdAt: Date.now()
     };
-    setSavedProducts([newProduct, ...savedProducts]);
+    
+    try {
+      await addDoc(collection(db, 'products'), newProduct);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'products');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setSavedProducts(savedProducts.filter(p => p.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'products', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+    }
   };
 
   const handleLoad = (p: SavedProduct) => {
@@ -219,6 +334,19 @@ export default function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
+            {user ? (
+              <div className="flex items-center gap-2 mr-2">
+                <img src={user.photoURL || ''} alt="User" className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700" />
+                <button onClick={handleLogout} className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-slate-700" title="Logout">
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <button onClick={handleLogin} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 rounded-full transition-colors mr-2">
+                <LogIn className="w-4 h-4" />
+                Login to Save
+              </button>
+            )}
             <button onClick={() => { setTempSettings(settings); setIsSettingsOpen(true); }} className="p-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-slate-700" title="Settings">
               <SettingsIcon className="w-5 h-5" />
             </button>
@@ -400,41 +528,59 @@ export default function App() {
         </div>
 
         {/* Saved Products Section */}
-        {savedProducts.length > 0 && (
-          <div className="mt-12 border-t border-slate-200 dark:border-slate-700 pt-10">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2">
-              <Save className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
-              Saved Calculations
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {savedProducts.map(product => (
-                <div key={product.id} className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4 transition-colors">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">{product.name}</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{product.date} • {product.filamentType}</p>
+        {user ? (
+          savedProducts.length > 0 ? (
+            <div className="mt-12 border-t border-slate-200 dark:border-slate-700 pt-10">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2">
+                <Save className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
+                Saved Calculations
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {savedProducts.map(product => (
+                  <div key={product.id} className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4 transition-colors">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">{product.name}</h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{product.date} • {product.filamentType}</p>
+                      </div>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-lg">
+                        {formatCurrency(product.finalPrice)}
+                      </span>
                     </div>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-lg">
-                      {formatCurrency(product.finalPrice)}
-                    </span>
+                    <div className="flex gap-3 mt-auto pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                      <button 
+                        onClick={() => handleLoad(product)} 
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-medium transition-colors"
+                      >
+                        <Upload className="w-4 h-4" /> Load
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(product.id)} 
+                        className="flex items-center justify-center px-4 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors" 
+                        title="Delete"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-3 mt-auto pt-4 border-t border-slate-100 dark:border-slate-700/50">
-                    <button 
-                      onClick={() => handleLoad(product)} 
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-medium transition-colors"
-                    >
-                      <Upload className="w-4 h-4" /> Load
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(product.id)} 
-                      className="flex items-center justify-center px-4 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors" 
-                      title="Delete"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-12 border-t border-slate-200 dark:border-slate-700 pt-10 text-center">
+              <p className="text-slate-500 dark:text-slate-400">No saved products yet. Calculate and save your first product!</p>
+            </div>
+          )
+        ) : (
+          <div className="mt-12 border-t border-slate-200 dark:border-slate-700 pt-10 text-center">
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-8 border border-indigo-100 dark:border-indigo-800/30 max-w-2xl mx-auto">
+              <UserIcon className="w-12 h-12 text-indigo-500 dark:text-indigo-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Cloud Sync Available</h3>
+              <p className="text-slate-600 dark:text-slate-400 mb-6">Login with your Google account to save your calculated products to the cloud and access them from any device.</p>
+              <button onClick={handleLogin} className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-colors shadow-sm">
+                <LogIn className="w-5 h-5" />
+                Login to Save Products
+              </button>
             </div>
           </div>
         )}

@@ -1,0 +1,100 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: products
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required) - UID of the owner
+    //   - name: string (required, < 100 chars) - Name of the product
+    //   - filamentType: string (required, < 50 chars) - Type of filament
+    //   - filamentUsed: number (optional) - Amount of filament used
+    //   - spoolPrice: number (optional) - Price of a 1kg spool
+    //   - printingTime: number (optional) - Printing time
+    //   - componentsCost: number (optional) - Cost of components
+    //   - toppingCost: number (optional) - Cost of toppings
+    //   - packagingCost: number (optional) - Cost of packaging
+    //   - otherCost: number (optional) - Other costs
+    //   - laborCost: number (optional) - Labor cost
+    //   - electricityCost: number (optional) - Electricity cost
+    //   - maintenanceCost: number (optional) - Maintenance cost
+    //   - markupPercentage: number (optional) - Markup percentage
+    //   - finalPrice: number (required) - Calculated final price
+    //   - date: string (optional, < 50 chars) - Date string
+    //   - createdAt: number (required) - Timestamp of creation
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function uidUnchanged() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalNumber(field) {
+      return !(field in request.resource.data) || request.resource.data[field] is number;
+    }
+
+    function isValidProduct(data) {
+      return hasRequiredFields(['userId', 'name', 'filamentType', 'finalPrice', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             validStringLength('name', 1, 100) &&
+             validStringLength('filamentType', 1, 50) &&
+             isValidOptionalNumber('filamentUsed') &&
+             isValidOptionalNumber('spoolPrice') &&
+             isValidOptionalNumber('printingTime') &&
+             isValidOptionalNumber('componentsCost') &&
+             isValidOptionalNumber('toppingCost') &&
+             isValidOptionalNumber('packagingCost') &&
+             isValidOptionalNumber('otherCost') &&
+             isValidOptionalNumber('laborCost') &&
+             isValidOptionalNumber('electricityCost') &&
+             isValidOptionalNumber('maintenanceCost') &&
+             isValidOptionalNumber('markupPercentage') &&
+             data.finalPrice is number &&
+             isValidOptionalString('date', 0, 50) &&
+             data.createdAt is number;
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidProduct(request.resource.data) && uidUnchanged();
+      allow update: if isAuthenticated() && isOwner(resource.data.userId) && isValidProduct(request.resource.data) && uidNotModified() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+  }
+}

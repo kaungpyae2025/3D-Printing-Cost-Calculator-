@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A saved 3D printing product calculation",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this product"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the product"
+        },
+        "filamentType": {
+          "type": "string",
+          "description": "The type of filament used"
+        },
+        "filamentUsed": {
+          "type": "number",
+          "description": "Amount of filament used in grams"
+        },
+        "spoolPrice": {
+          "type": "number",
+          "description": "Price of a 1kg spool"
+        },
+        "printingTime": {
+          "type": "number",
+          "description": "Printing time in minutes"
+        },
+        "componentsCost": {
+          "type": "number",
+          "description": "Cost of additional components"
+        },
+        "toppingCost": {
+          "type": "number",
+          "description": "Cost of toppings/finishing"
+        },
+        "packagingCost": {
+          "type": "number",
+          "description": "Cost of packaging"
+        },
+        "otherCost": {
+          "type": "number",
+          "description": "Other miscellaneous costs"
+        },
+        "laborCost": {
+          "type": "number",
+          "description": "Labor cost"
+        },
+        "electricityCost": {
+          "type": "number",
+          "description": "Electricity cost"
+        },
+        "maintenanceCost": {
+          "type": "number",
+          "description": "Maintenance cost"
+        },
+        "markupPercentage": {
+          "type": "number",
+          "description": "Markup percentage"
+        },
+        "finalPrice": {
+          "type": "number",
+          "description": "Calculated final price"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date the product was saved"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp of creation"
+        }
+      },
+      "required": ["userId", "name", "filamentType", "finalPrice", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "Collection of saved 3D printing products"
+    }
+  }
+}
