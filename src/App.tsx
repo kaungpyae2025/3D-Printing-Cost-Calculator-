@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Moon, Sun, Calculator, RefreshCw, Printer, Package, Wrench, DollarSign, Save, Trash2, Upload, Settings as SettingsIcon, X, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { auth, db, provider } from './firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
 
 enum OperationType {
@@ -151,6 +151,16 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   useEffect(() => {
+    // Handle redirect result for Safari/Mobile
+    getRedirectResult(auth).then((result) => {
+      if (result && result.user) {
+        setUser(result.user);
+        setIsAuthReady(true);
+      }
+    }).catch((error) => {
+      console.error("Redirect login error:", error);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
@@ -252,8 +262,17 @@ export default function App() {
         setIsAuthReady(true);
       }
     } catch (error: any) {
-      console.error("Login failed", error);
-      alert(`Login မအောင်မြင်ပါ: ${error.message}\n\n(Vercel မှာသုံးနေတာဆိုရင် Firebase Console မှာ Domain သွားထည့်ပေးဖို့ လိုအပ်နိုင်ပါတယ်။)`);
+      console.error("Popup Login failed", error);
+      // If user manually closed the popup, don't redirect
+      if (error.code === 'auth/popup-closed-by-user') return;
+      
+      // Fallback to redirect for Safari and mobile browsers
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectError: any) {
+        console.error("Redirect Login failed", redirectError);
+        alert(`Login မအောင်မြင်ပါ: ${redirectError.message}\n\n(Safari Settings ထဲက "Prevent Cross-Site Tracking" ကို ပိတ်ပေးဖို့ လိုအပ်နိုင်ပါတယ်။)`);
+      }
     }
   };
 
