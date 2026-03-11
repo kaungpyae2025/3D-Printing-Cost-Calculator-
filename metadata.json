@@ -1,0 +1,5 @@
+{
+  "name": "3D Printing Cost Calculator",
+  "description": "Calculate production cost and selling price of 3D printed products.",
+  "requestFramePermissions": []
+}
